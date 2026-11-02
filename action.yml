@@ -20,7 +20,7 @@ inputs:
     description: "Required. The command your build step runs (e.g. make build). witness traces it. Multi-line allowed."
     required: true
   network-trace:
-    description: "Also trace network activity during the build: true | false."
+    description: "Also trace network activity during the build: true | false. Needs Linux kernel 6.12 or newer."
     required: false
     default: "false"
   sbom-format:
@@ -65,6 +65,8 @@ runs:
     # ── Stage 1. Prepare ───────────────────────────────────────────────────
     - name: "[1-1] Check runner"
       shell: bash
+      env:
+        SBOMIT_NETWORK_TRACE: ${{ inputs.network-trace }}
       run: bash "$GITHUB_ACTION_PATH/scripts/prepare/check-runner.sh"
 
     # Isolated Go used only to build witness/sbomit. Not added to PATH (see scripts/lib/common.sh).
@@ -95,6 +97,7 @@ runs:
       run: bash "$GITHUB_ACTION_PATH/scripts/witness/gen-signing-key.sh"
 
     - name: "[2-2] Set up network-trace CA"
+      id: network_ca
       if: inputs.network-trace == 'true'
       shell: bash
       run: bash "$GITHUB_ACTION_PATH/scripts/witness/setup-network-ca.sh"
@@ -106,6 +109,13 @@ runs:
         SBOMIT_BUILD_COMMAND: ${{ inputs.build-command }}
         SBOMIT_NETWORK_TRACE: ${{ inputs.network-trace }}
       run: bash "$GITHUB_ACTION_PATH/scripts/witness/run.sh"
+
+    # Always remove the CA again once it was set up, even when the build failed,
+    # so later steps of the caller's job do not trust it.
+    - name: "[2-4] Remove network-trace CA"
+      if: always() && inputs.network-trace == 'true' && steps.network_ca.outcome != 'skipped'
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/scripts/witness/remove-network-ca.sh"
 
     # ── Stage 3. Run sbomit ────────────────────────────────────────────────
     - name: "[3-1] Generate SBOM"

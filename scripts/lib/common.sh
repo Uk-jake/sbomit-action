@@ -34,6 +34,15 @@ SBOMIT_KEY_DIR="${SBOMIT_WORK_DIR}/keys"   # private material; never uploaded
 SBOMIT_OUT_DIR="${SBOMIT_WORK_DIR}/out"    # final results; uploaded as the artifact
 export SBOMIT_WORK_DIR SBOMIT_KEY_DIR SBOMIT_OUT_DIR
 
+# Network-trace CA (Stage 2-2 creates, 2-3 uses, 2-4 removes).
+# The key stays in the key dir (never in the workspace, never uploaded).
+SBOMIT_NET_CA_KEY="${SBOMIT_KEY_DIR}/network-ca.key"
+SBOMIT_NET_CA_CERT="${SBOMIT_WORK_DIR}/network-ca/ca.crt"
+# Where the CA is registered in the OS trust store (Ubuntu / Debian layout).
+SBOMIT_NET_CA_TRUST="/usr/local/share/ca-certificates/sbomit-witness-network-trace.crt"
+SBOMIT_OS_CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
+export SBOMIT_NET_CA_KEY SBOMIT_NET_CA_CERT SBOMIT_NET_CA_TRUST SBOMIT_OS_CA_BUNDLE
+
 # User source location. GITHUB_WORKSPACE in Actions, current directory locally.
 SBOMIT_WORKSPACE="${GITHUB_WORKSPACE:-$PWD}"
 export SBOMIT_WORKSPACE

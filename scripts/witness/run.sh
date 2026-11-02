@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
 # Stage 2-3: run witness
 #
-# Run the user's build under witness with eBPF file tracing and write a signed
-# attestation to $SBOMIT_OUT_DIR/attestation.json.
+# Run the user's build under witness with eBPF file tracing (and, with
+# network-trace=true, network tracing) and write a signed attestation to
+# $SBOMIT_OUT_DIR/attestation.json.
 #
 # To change HOW witness is invoked, edit only the "Run" block.
 #
 # After the run this script verifies that eBPF tracing was really used:
 #   - on failure : explain likely causes (eBPF unavailable, timeout, build error)
 #   - on success : require "Using tracer: ebpf" in the log and >= 1 traced process
+#                  network-trace=true: require network trace data (0 connections only warns)
 # (There is no separate eBPF check step. witness fails before the build starts
 #  when the eBPF tracer cannot be loaded; it never falls back to ptrace.)
 #
 # Env:
 #   SBOMIT_BUILD_COMMAND   the user's build command (never interpolated into code)
+#   SBOMIT_NETWORK_TRACE   true | false
 # Step output:
 #   attestation-path
 set -euo pipefail
@@ -27,11 +30,28 @@ require_cmd witness jq base64 timeout
 BACKEND="${SBOMIT_TRACE_BACKEND:-$DEFAULT_TRACE_BACKEND}"
 ATTESTORS="${SBOMIT_ATTESTORS:-$DEFAULT_ATTESTORS}"
 TIMEOUT_MINUTES="${SBOMIT_TIMEOUT_MINUTES:-$DEFAULT_TIMEOUT_MINUTES}"
+NETWORK_TRACE="${SBOMIT_NETWORK_TRACE:-false}"
 ATTESTATION="$SBOMIT_OUT_DIR/attestation.json"
 LOG="$SBOMIT_WORK_DIR/witness-run.log"
 
 cd "$SBOMIT_WORKSPACE"
 mkdir -p "$SBOMIT_OUT_DIR"
+
+# network-trace options. The CA from Stage 2-2 is passed explicitly and
+# generate-ca=false makes witness fail instead of creating an untrusted CA.
+network_args=()
+if [ "$NETWORK_TRACE" = "true" ]; then
+  if [ ! -s "$SBOMIT_NET_CA_CERT" ] || [ ! -s "$SBOMIT_NET_CA_KEY" ]; then
+    die "Network-trace CA not found. Stage 2-2 must run first."
+  fi
+  ATTESTORS="${ATTESTORS},network-trace"
+  network_args=(
+    --experimental
+    --attestor-network-trace-ca-cert-path "$SBOMIT_NET_CA_CERT"
+    --attestor-network-trace-ca-key-path "$SBOMIT_NET_CA_KEY"
+    --attestor-network-trace-generate-ca=false
+  )
+fi
 
 # Timestamp marker: files created/modified by the root-run build are newer than this.
 MARKER="$SBOMIT_WORK_DIR/build-start.marker"
@@ -41,7 +61,7 @@ touch "$MARKER"
 # Root is required for eBPF. HOME and PATH are kept so the build sees the same
 # toolchains and caches as the runner user (sudo would otherwise reset them).
 # Output goes to the Actions log and to $LOG (for the checks below).
-group_start "witness run (backend: ${BACKEND}, timeout: ${TIMEOUT_MINUTES}m)"
+group_start "witness run (backend: ${BACKEND}, network-trace: ${NETWORK_TRACE}, timeout: ${TIMEOUT_MINUTES}m)"
 set +e
 sudo -E env "HOME=$HOME" "PATH=$PATH" \
   timeout --kill-after=30s "${TIMEOUT_MINUTES}m" \
@@ -50,6 +70,7 @@ sudo -E env "HOME=$HOME" "PATH=$PATH" \
     --trace \
     --attestor-command-run-trace-backend "$BACKEND" \
     --attestations "$ATTESTORS" \
+    "${network_args[@]}" \
     --signer-file-key-path "$SBOMIT_KEY_DIR/signing.key" \
     --outfile "$ATTESTATION" \
     -- bash -c "$SBOMIT_BUILD_COMMAND" 2>&1 | tee "$LOG"
@@ -92,6 +113,10 @@ if [ "$rc" -ne 0 ]; then
   if grep -q "command-run eBPF trace error" "$LOG"; then
     die "witness eBPF tracer reported an internal tracing error (see 'command-run eBPF trace error' above). This is a witness/go-witness issue, not a build failure. Known to happen on kernel 7.0 (this runner: $(uname -r))."
   fi
+  # HTTPS inside the build rejected the interception CA (network-trace only).
+  if [ "$NETWORK_TRACE" = "true" ] && grep -qiE 'certificate signed by unknown authority|self[- ]signed certificate in certificate chain|unable to get local issuer certificate|SELF_SIGNED_CERT_IN_CHAIN|PKIX path building failed' "$LOG"; then
+    die "An HTTPS client in the build did not trust the network-trace CA (see the certificate error above). Only the OS trust store is configured; tools with their own CA list (for example Node, Python requests/pip, Java) are not supported yet."
+  fi
   die "witness run failed (exit code ${rc}). This is usually the build command itself failing; see the log above."
 fi
 
@@ -111,6 +136,25 @@ materials="$(count '[.predicate.attestations[] | select(.type | test("/material/
 products="$(count '[.predicate.attestations[] | select(.type | test("/product/")) | .attestation // {} | length] | add // 0')"
 
 [ "$processes" -gt 0 ] || die "The attestation contains no traced processes. eBPF tracing did not capture the build."
+
+# Network trace: the data sits under a "network_trace" object (the network-trace
+# attestor). Searched anywhere in the attestations so a layout change upstream
+# does not silently read as "no data".
+if [ "$NETWORK_TRACE" = "true" ]; then
+  nt_count="$(count '[.predicate.attestations[].attestation | .. | objects | select(has("network_trace"))] | length')"
+  [ "$nt_count" -gt 0 ] || die "network-trace was enabled but the attestation contains no network trace data."
+  nt='[.predicate.attestations[].attestation | .. | objects | select(has("network_trace")) | .network_trace]'
+  connections="$(count "${nt} | map(.summary.total_connections // (.connections // [] | length)) | add // 0")"
+  intercepted="$(count "${nt} | map(.summary.intercepted_count // 0) | add // 0")"
+  hosts="$(count "${nt} | map(.summary.unique_hosts // []) | (add // []) | unique | length")"
+  record_fact NETWORK_CONNECTIONS "$connections"
+  record_fact NETWORK_INTERCEPTED "$intercepted"
+  record_fact NETWORK_UNIQUE_HOSTS "$hosts"
+  log_info "Connections    : ${connections} (${intercepted} intercepted, ${hosts} hosts)"
+  if [ "$connections" -eq 0 ]; then
+    log_warn "network-trace recorded 0 connections. The build may not use the network (for example, dependencies restored from a cache)."
+  fi
+fi
 
 record_fact TRACED_PROCESSES "$processes"
 record_fact TRACED_OPENED_FILES "$opened_files"

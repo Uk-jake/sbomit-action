@@ -6,8 +6,15 @@
 #
 # Runner: ubuntu-22.04 (kernel 6.8). witness eBPF file trace currently fails on
 # kernel 7.0 (go-witness issue, handled upstream), and Ubuntu 24.04 images are
-# moving to kernel 7.0. Network trace needs kernel 6.12+, so the runner will be
-# revisited when network trace is implemented.
+# moving to kernel 7.0.
+#
+# Network trace needs kernel 6.12+, which no GitHub-hosted runner provides that
+# also works with witness today. So:
+#   - network-ca             tests CA setup/removal (no eBPF needed, runs now)
+#   - network-trace-old-kernel  checks that network-trace is refused on 6.8
+#   - network-trace          full traced build with network trace. Disabled until
+#                            the repository variable SBOMIT_NETWORK_TRACE_RUNNER
+#                            is set to a runner label with a supported kernel.
 name: E2E
 
 on:
@@ -87,12 +94,6 @@ jobs:
             network_trace: "yes"
             sbom_format: spdx23
             use_syft: "true"
-          # Temporary: network trace is not implemented yet. Remove when it is.
-          - case: network-trace-not-supported-yet
-            build_command: "true"
-            network_trace: "true"
-            sbom_format: spdx23
-            use_syft: "true"
           - case: cdx15-with-syft
             build_command: "true"
             network_trace: "false"
@@ -120,4 +121,101 @@ jobs:
           if [ "$OUTCOME" != "failure" ]; then
             echo "::error::Expected Stage 0 to reject case '${{ matrix.case }}', but the action outcome was '${OUTCOME}'."
             exit 1
+          fi
+
+  # CA setup and removal for network trace. Uses the scripts directly (no witness),
+  # so it runs on any Ubuntu runner.
+  network-ca:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up network-trace CA
+        run: bash scripts/witness/setup-network-ca.sh
+      - name: CA is trusted by the OS bundle, key is private
+        run: |
+          set -euo pipefail
+          ca="$RUNNER_TEMP/sbomit/network-ca/ca.crt"
+          key="$RUNNER_TEMP/sbomit/keys/network-ca.key"
+          openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt "$ca"
+          openssl x509 -in "$ca" -noout -subject -ext basicConstraints
+          [ "$(stat -c %a "$key")" = "600" ] || { echo "::error::CA key mode is $(stat -c %a "$key"), expected 600"; exit 1; }
+          # The key must not be in the workspace (it is never uploaded).
+          if find "$GITHUB_WORKSPACE" -name '*.key' -o -name 'witness_nettrace_proxy' | grep -q .; then
+            echo "::error::CA material found in the workspace"; exit 1
+          fi
+      - name: Remove network-trace CA
+        run: bash scripts/witness/remove-network-ca.sh
+      - name: CA is no longer trusted, key deleted
+        run: |
+          set -euo pipefail
+          ca="$RUNNER_TEMP/sbomit/network-ca/ca.crt"
+          if openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt "$ca"; then
+            echo "::error::CA is still trusted after removal"; exit 1
+          fi
+          [ ! -e "$RUNNER_TEMP/sbomit/keys/network-ca.key" ] || { echo "::error::CA key still exists"; exit 1; }
+          echo "CA removed."
+
+  # network-trace on kernel 6.8 must be refused by the runner check (Stage 1-1),
+  # before anything is installed or run.
+  network-trace-old-kernel:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Run SBOMit action with network-trace (expected to fail)
+        id: sbomit
+        continue-on-error: true
+        uses: ./
+        with:
+          build-command: "true"
+          network-trace: "true"
+      - name: Assert the action failed
+        env:
+          OUTCOME: ${{ steps.sbomit.outcome }}
+        run: |
+          echo "outcome: ${OUTCOME}"
+          [ "$OUTCOME" = "failure" ] || { echo "::error::Expected network-trace to be refused on kernel $(uname -r)."; exit 1; }
+
+  # Full build with network trace. Enable by setting the repository variable
+  # SBOMIT_NETWORK_TRACE_RUNNER (Settings > Secrets and variables > Actions >
+  # Variables) to a runner label whose kernel is 6.12+ and works with witness.
+  network-trace:
+    if: vars.SBOMIT_NETWORK_TRACE_RUNNER != ''
+    runs-on: ${{ vars.SBOMIT_NETWORK_TRACE_RUNNER }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: tests/fixtures/go-hello/go.mod
+          cache: false
+      - name: Build under SBOMit with network trace
+        id: sbomit
+        uses: ./
+        with:
+          network-trace: "true"
+          # curl uses the OS trust store; `go list -m` queries the Go module proxy over HTTPS.
+          build-command: |
+            curl -fsS -o /dev/null https://proxy.golang.org/
+            cd tests/fixtures/go-hello
+            GOPROXY=https://proxy.golang.org go list -m golang.org/x/text@v0.14.0
+            go build -trimpath -o bin/go-hello .
+      - name: Check network trace results
+        env:
+          METADATA_PATH: ${{ steps.sbomit.outputs.metadata-path }}
+        run: |
+          set -euo pipefail
+          jq '.facts | {NETWORK_CONNECTIONS, NETWORK_INTERCEPTED, NETWORK_UNIQUE_HOSTS}' "$METADATA_PATH"
+          conns="$(jq -r '.facts.NETWORK_CONNECTIONS // "0"' "$METADATA_PATH")"
+          intercepted="$(jq -r '.facts.NETWORK_INTERCEPTED // "0"' "$METADATA_PATH")"
+          [ "$conns" -gt 0 ] || { echo "::error::No network connections recorded"; exit 1; }
+          [ "$intercepted" -gt 0 ] || { echo "::error::No HTTPS connection was intercepted (CA not used?)"; exit 1; }
+      - name: CA is no longer trusted after the action
+        run: |
+          if openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt "$RUNNER_TEMP/sbomit/network-ca/ca.crt"; then
+            echo "::error::CA is still trusted after the action"; exit 1
           fi

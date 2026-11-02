@@ -5,6 +5,15 @@
 # and the base commands used by later stages. Records runner facts.
 # eBPF support is not checked here: witness fails on its own when the eBPF
 # tracer cannot be loaded (see Stage 2-3).
+#
+# With network-trace=true, two more checks run (known requirements, not an eBPF probe):
+#   - kernel 6.12 or newer (the network-trace eBPF program uses the
+#     bpf_task_from_pid kfunc, added in 6.12). Without this check witness would
+#     fail later with a low-level BPF load error.
+#   - update-ca-certificates (Stage 2-2 registers the interception CA with it).
+#
+# Env:
+#   SBOMIT_NETWORK_TRACE   true | false
 set -euo pipefail
 
 # shellcheck source=scripts/lib/common.sh
@@ -34,6 +43,18 @@ fi
 for cmd in git curl tar sha256sum make openssl jq base64 timeout; do
   command -v "$cmd" >/dev/null 2>&1 || problems+=("Required command not found: ${cmd}")
 done
+
+if [ "${SBOMIT_NETWORK_TRACE:-false}" = "true" ]; then
+  # "6.8.0-1017-azure" -> major 6, minor 8
+  k_major="$(printf '%s' "$kernel" | cut -d. -f1 | sed 's/[^0-9].*//')"
+  k_minor="$(printf '%s' "$kernel" | cut -d. -f2 | sed 's/[^0-9].*//')"
+  k_major="${k_major:-0}"; k_minor="${k_minor:-0}"
+  if [ "$k_major" -lt 6 ] || { [ "$k_major" -eq 6 ] && [ "$k_minor" -lt 12 ]; }; then
+    problems+=("network-trace needs Linux kernel 6.12 or newer (this runner: ${kernel}). Use a runner with a newer kernel, or set 'network-trace: false'.")
+  fi
+  command -v update-ca-certificates >/dev/null 2>&1 \
+    || problems+=("Required command not found: update-ca-certificates (needed for network-trace). Only Ubuntu/Debian runners are supported.")
+fi
 
 if [ "${#problems[@]}" -gt 0 ]; then
   for p in "${problems[@]}"; do log_error "$p"; done

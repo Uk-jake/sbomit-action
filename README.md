@@ -6,7 +6,9 @@ the action runs your build under [witness](https://github.com/in-toto/witness) a
 > **Status:** the file-trace pipeline is complete: your build runs under witness
 > eBPF file tracing, a signed attestation is produced, an SBOM is generated from
 > it, and all results are uploaded with a summary. Network trace
-> (`network-trace: true`) is not supported yet.
+> (`network-trace: true`) is implemented but not yet tested on GitHub Actions,
+> because no GitHub-hosted runner currently has a kernel it works on
+> (see [Network trace](#network-trace)).
 
 ## How it fits into your workflow
 
@@ -50,7 +52,7 @@ needs for building witness and sbomit is kept separate from your PATH and caches
 | Input | Default | Values |
 |---|---|---|
 | `build-command` | (required) | The command your build step runs. Multi-line allowed. |
-| `network-trace` | `false` | `false` only for now (`true` is rejected until network trace is implemented) |
+| `network-trace` | `false` | `true`, `false`. `true` needs kernel 6.12+ (see [Network trace](#network-trace)) |
 | `sbom-format` | `spdx23` | `spdx23`, `cdx14`, `cdx15` |
 | `use-syft` | `true` | `true`, `false` (`cdx15` requires `false`) |
 
@@ -95,6 +97,37 @@ disable dependency caching in the job that uses this action (for example
 `cache: false` on `actions/setup-go`). Detailed guidance per ecosystem will be
 added after testing how caches affect the results.
 
+## Network trace
+
+With `network-trace: true`, witness also records the network connections the
+build makes (hosts, IPs and, for HTTPS, the requested URLs). sbomit uses them to
+add `url=` and `ip=` qualifiers to the SBOM. The sbomit command is the same.
+
+**How HTTPS is recorded.** witness redirects the build's connections to a local
+proxy. To read HTTPS, the proxy acts as the server towards the build (man in the
+middle): it presents a certificate for each requested host, signed by its own CA,
+and makes the real, verified connection to the server itself. Programs in the
+build accept these certificates only if they trust that CA. This action therefore:
+
+1. creates a short-lived CA for the job (`[2-2]`). Its key stays in the runner's
+   temp directory, never in your workspace, and is never uploaded,
+2. adds it to the OS trust store for the build (`[2-2]`),
+3. removes it again right after the build, also when the build failed (`[2-4]`),
+   so your later steps do not trust it.
+
+**Limitations**
+
+- Kernel 6.12 or newer is required. The runner check refuses `network-trace: true`
+  on older kernels. `ubuntu-22.04` (6.8) is too old, and kernel 7.0 (`ubuntu-26.04`,
+  newer `ubuntu-24.04` images) is affected by the witness issue under
+  [Requirements](#requirements). So no GitHub-hosted runner supports it today.
+- Only the OS trust store is configured. Go, curl and git use it. Tools that
+  ship their own CA list (for example Node/npm, Python requests/pip, Java) do not,
+  and their HTTPS requests fail with a certificate error. Support per ecosystem
+  will be added after testing.
+- Tools that pin certificates cannot be traced this way.
+- Ubuntu/Debian runners only (`update-ca-certificates`).
+
 ## Requirements
 
 - Linux x86_64 runner with passwordless `sudo` (witness needs root for eBPF).
@@ -102,7 +135,7 @@ added after testing how caches affect the results.
   - Tested: `ubuntu-22.04` (kernel 6.8).
   - Known issue: tracing fails on kernel 7.0 (`command-run eBPF trace missing pending open`),
     which affects `ubuntu-26.04` and newer `ubuntu-24.04` images. Tracked in go-witness.
-  - Network trace (not yet supported here) will need kernel 6.12 or newer.
+  - `network-trace: true` needs kernel 6.12 or newer.
 - Network access to github.com, dl.google.com and get.anchore.io (tools are installed at run time).
 
 ## What happens inside
@@ -111,7 +144,7 @@ added after testing how caches affect the results.
 |---|---|---|
 | Validate | inputs, workspace (source checked out) | `scripts/validate/` |
 | Prepare | runner check, tool install | `scripts/prepare/`, `scripts/install/` |
-| Run witness | signing key, network CA (later), traced build, return file ownership | `scripts/witness/` |
+| Run witness | signing key, network-trace CA, traced build, return file ownership, remove CA | `scripts/witness/` |
 | Run sbomit | generate, check | `scripts/sbomit/` |
 | Report | metadata, upload, summary | `scripts/report/` |
 

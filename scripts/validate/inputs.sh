@@ -42,13 +42,6 @@ if ! is_bool "$use_syft"; then
   errors+=("'use-syft' must be 'true' or 'false' (got: '${use_syft}')")
 fi
 
-# Temporary rule: network trace is not implemented yet (file trace only).
-# Fail loudly instead of silently producing an attestation without network data.
-# Remove this rule when scripts/witness/setup-network-ca.sh is implemented.
-if [ "$network_trace" = "true" ]; then
-  errors+=("'network-trace: true' is not supported yet. Only file tracing is available for now; set 'network-trace: false'.")
-fi
-
 # Combination rule: sbomit fails with a multi-root CycloneDX error for cdx15 + syft catalog.
 # Remove this rule once the upstream issue is fixed.
 if [ "$sbom_format" = "cdx15" ] && [ "$use_syft" = "true" ]; then

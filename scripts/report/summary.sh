@@ -28,6 +28,12 @@ case "$status" in
   *)                headline="❌ No attestation was produced. See the step logs for the cause" ;;
 esac
 
+# Network trace row only when it was enabled.
+network_row=""
+if [ "$(jq -r '.inputs.network_trace' "$METADATA")" = "true" ]; then
+  network_row="| Network trace | $(fact NETWORK_CONNECTIONS) connections ($(fact NETWORK_INTERCEPTED) intercepted), $(fact NETWORK_UNIQUE_HOSTS) hosts |"
+fi
+
 artifact_name="${SBOMIT_ARTIFACT_NAME:-}"
 artifact_url="${SBOMIT_ARTIFACT_URL:-}"
 if [ -n "$artifact_url" ]; then
@@ -47,6 +53,7 @@ fi
   echo "| SBOM document | \`$(fact SBOM_DOCUMENT_NAME)\` version \`$(fact SBOM_DOCUMENT_VERSION)\` |"
   echo "| syft catalog | $(fact SBOM_USE_SYFT) |"
   echo "| Traced build | $(fact TRACED_PROCESSES) processes, $(fact TRACED_OPENED_FILES) opened files |"
+  [ -z "$network_row" ] || echo "$network_row"
   echo "| Materials / products | $(fact ATTESTATION_MATERIALS) / $(fact ATTESTATION_PRODUCTS) |"
   echo "| Results | ${artifact_cell} |"
   echo
