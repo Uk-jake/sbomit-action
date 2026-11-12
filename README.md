@@ -1,7 +1,7 @@
-# SBOMit Pipeline Runner
+# SBOMit Action
 
-A GitHub Action that generate a SBOM file using [sbomit](https://github.com/sbomit/sbomit).
-the action runs your build under [witness](https://github.com/in-toto/witness) and generates an SBOM.
+A GitHub Action that runs your build under [witness](https://github.com/in-toto/witness)
+and generates an SBOM from the resulting attestation using [sbomit](https://github.com/sbomit/sbomit).
 
 > **Status:** the file-trace pipeline is complete: your build runs under witness
 > eBPF file tracing, a signed attestation is produced, an SBOM is generated from
@@ -127,6 +127,9 @@ build accept these certificates only if they trust that CA. This action therefor
   will be added after testing.
 - Tools that pin certificates cannot be traced this way.
 - Ubuntu/Debian runners only (`update-ca-certificates`).
+- Self-hosted runners: if the job is killed before `[2-4]`, the CA stays in the
+  trust store until the next run of this action removes it (`[1-1]`). Its key is
+  in the job's temp directory. Prefer ephemeral runners.
 
 ## Requirements
 
@@ -136,7 +139,7 @@ build accept these certificates only if they trust that CA. This action therefor
   - Known issue: tracing fails on kernel 7.0 (`command-run eBPF trace missing pending open`),
     which affects `ubuntu-26.04` and newer `ubuntu-24.04` images. Tracked in go-witness.
   - `network-trace: true` needs kernel 6.12 or newer.
-- Network access to github.com, dl.google.com and get.anchore.io (tools are installed at run time).
+- Network access to github.com, dl.google.com, proxy.golang.org and sum.golang.org (tools are installed at run time).
 
 ## What happens inside
 
@@ -158,10 +161,11 @@ means editing that one file.
 |---|---|---|
 | witness | `witness.sh` | Built from `in-toto/witness` + `in-toto/go-witness` (`main` by default) with `go work` |
 | sbomit | `sbomit.sh` | `go install github.com/sbomit/sbomit@latest` |
-| syft | `syft.sh` | Official installer script from `get.anchore.io` |
+| syft | `syft.sh` | Pinned release archive from GitHub, verified against a SHA-256 pinned in the script |
 | Go (tools only) | `go.sh` | Official archive, sha256-verified; isolated from your PATH and caches |
 
-The exact versions and commits used in a run are recorded for the run metadata.
+Tools are installed under the job's temp directory (`$RUNNER_TEMP/sbomit/tools`), and the exact versions
+and commits used in a run are recorded for the run metadata.
 
 ## Running scripts locally
 
@@ -172,3 +176,13 @@ SBOMIT_BUILD_COMMAND="go build ./..." SBOMIT_NETWORK_TRACE=false \
 SBOMIT_SBOM_FORMAT=spdx23 SBOMIT_USE_SYFT=true \
   bash scripts/validate/inputs.sh
 ```
+
+## Contributing
+
+Commits must be signed off (`git commit -s`) under the
+[Developer Certificate of Origin](https://developercertificate.org/); a DCO check
+runs on every pull request. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[Apache License 2.0](LICENSE)

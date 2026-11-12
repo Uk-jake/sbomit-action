@@ -35,7 +35,7 @@ go work init .
 go work use ../go-witness
 
 make build
-sudo install -m 0755 ./bin/witness /usr/local/bin/witness
+install -m 0755 ./bin/witness "$SBOMIT_BIN_DIR/witness"
 group_end
 # ─────────────────────────────────────────────────────────────────────────────
 

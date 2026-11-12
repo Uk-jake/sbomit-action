@@ -60,12 +60,14 @@ touch "$MARKER"
 # ── Run ──────────────────────────────────────────────────────────────────────
 # Root is required for eBPF. HOME and PATH are kept so the build sees the same
 # toolchains and caches as the runner user (sudo would otherwise reset them).
+# The build gets the caller's own PATH (SBOMIT_USER_PATH), without the
+# pipeline's tool dir, and witness is called by absolute path.
 # Output goes to the Actions log and to $LOG (for the checks below).
 group_start "witness run (backend: ${BACKEND}, network-trace: ${NETWORK_TRACE}, timeout: ${TIMEOUT_MINUTES}m)"
 set +e
-sudo -E env "HOME=$HOME" "PATH=$PATH" \
+sudo -E env "HOME=$HOME" "PATH=$SBOMIT_USER_PATH" \
   timeout --kill-after=30s "${TIMEOUT_MINUTES}m" \
-  witness run \
+  "$(command -v witness)" run \
     --step build \
     --trace \
     --attestor-command-run-trace-backend "$BACKEND" \

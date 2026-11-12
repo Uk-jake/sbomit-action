@@ -6,7 +6,7 @@
 # promoting one to an action input later only requires adding the input in
 # action.yml and mapping it to the matching SBOMIT_<NAME> env var.
 #
-# User-facing input defaults (language, sbom-format, ...) live in action.yml,
+# User-facing input defaults (sbom-format, use-syft, ...) live in action.yml,
 # not here, to avoid two sources of truth.
 
 # Tracing backend. Fixed by project policy: SBOMit does not use ptrace.

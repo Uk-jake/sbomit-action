@@ -1,5 +1,6 @@
 # Probe the GitHub-hosted runner environment.
-# Purpose: decide the default trace-backend (ebpf needs kernel 6.12+ for bpf_task_from_pid).
+# Purpose: compare kernels and eBPF support across hosted images, to choose a
+# runner for the action file trace and for network-trace.
 name: Probe runner
 
 on:
@@ -19,7 +20,7 @@ jobs:
       - name: Collect environment facts
         run: |
           set -u
-          # Kernel version decides ebpf vs ptrace
+          # Kernel version decides which features work (network-trace needs 6.12+)
           kernel="$(uname -r)"
           # BTF is needed by most CO-RE eBPF programs
           if [ -f /sys/kernel/btf/vmlinux ]; then btf="yes"; else btf="no"; fi
