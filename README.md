@@ -22,14 +22,14 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false                      # recommended, see "Accurate SBOMs" below
-      - uses: Uk-jake/sbomit-pipeline-runner@main
+      - uses: sbomit/sbomit-action@main     # pin to a release tag or commit SHA once one is published
         with:
           build-command: make build         # the command your build step runs
       - run: make test                      # later steps work as usual
@@ -159,8 +159,8 @@ means editing that one file.
 
 | Tool | Script | How |
 |---|---|---|
-| witness | `witness.sh` | Built from `in-toto/witness` + `in-toto/go-witness` (`main` by default) with `go work` |
-| sbomit | `sbomit.sh` | `go install github.com/sbomit/sbomit@latest` |
+| witness | `witness.sh` | Built from `in-toto/witness` + `in-toto/go-witness` `main` with `go work` |
+| sbomit | `sbomit.sh` | `go install github.com/sbomit/sbomit@v0.3.0` (verified by the Go checksum database) |
 | syft | `syft.sh` | Pinned release archive from GitHub, verified against a SHA-256 pinned in the script |
 | Go (tools only) | `go.sh` | Official archive, sha256-verified; isolated from your PATH and caches |
 

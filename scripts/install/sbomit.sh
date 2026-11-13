@@ -13,5 +13,5 @@ go install github.com/sbomit/sbomit@v0.3.0   # GOBIN = $SBOMIT_BIN_DIR
 group_end
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Record the exact version that @latest resolved to.
+# Record the installed version.
 record_fact SBOMIT_VERSION "$(go version -m "$SBOMIT_BIN_DIR/sbomit" | awk '$1 == "mod" {print $3; exit}')"

@@ -1,6 +1,6 @@
-name: SBOMit Pipeline Runner
+name: SBOMit Action
 description: Run your build under witness eBPF tracing and generate an SBOMit SBOM from the attestation.
-author: Uk-jake
+author: SBOMit
 
 # Design notes
 # - This file only wires inputs to scripts. All logic lives in scripts/.
