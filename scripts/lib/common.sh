@@ -189,6 +189,14 @@ record_fact() {
 SBOMIT_TOOLS_DIR="${SBOMIT_WORK_DIR}/tools"
 export SBOMIT_TOOLS_DIR
 
+# Install tools in a per-job temp directory to avoid artifacts being
+# left/overwritten in the runner. Add to tools' PATH and keep user's PATH
+# intact in SBOMIT_USER_PATH.
+SBOMIT_BIN_DIR="${SBOMIT_TOOLS_DIR}/bin"
+SBOMIT_USER_PATH="${SBOMIT_USER_PATH:-$PATH}"
+PATH="${SBOMIT_BIN_DIR}:${SBOMIT_USER_PATH}"
+export SBOMIT_BIN_DIR SBOMIT_USER_PATH PATH
+
 # use_tools_go
 # Exports Go env for the CURRENT script process only (each step is a new shell,
 # so nothing leaks into later steps or the user's build).
@@ -200,7 +208,7 @@ use_tools_go() {
   export GOPATH="${SBOMIT_TOOLS_DIR}/gopath"
   export GOMODCACHE="${GOPATH}/pkg/mod"
   export GOCACHE="${SBOMIT_TOOLS_DIR}/gocache"
-  export GOBIN="${SBOMIT_TOOLS_DIR}/bin"
+  export GOBIN="$SBOMIT_BIN_DIR"
   export GOTOOLCHAIN=local      # never auto-download another toolchain
   export GOFLAGS=-modcacherw    # keep the module cache deletable
   mkdir -p "$GOPATH" "$GOCACHE" "$GOBIN"

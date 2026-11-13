@@ -61,6 +61,21 @@ if [ "${#problems[@]}" -gt 0 ]; then
   die "Runner check failed."
 fi
 
+# A network-trace CA can only still be trusted here if an earlier job on this
+# (self-hosted) runner was killed before Stage 2-4 removed it. Its key was in
+# that job's temp dir and is gone, but remove the stale trust anyway.
+if [ -e "$SBOMIT_NET_CA_TRUST" ]; then
+  log_warn "Removing a stale SBOMit network-trace CA left by an earlier job: ${SBOMIT_NET_CA_TRUST}"
+  sudo rm -f "$SBOMIT_NET_CA_TRUST"
+  sudo update-ca-certificates >/dev/null
+fi
+
+runner_env="${RUNNER_ENVIRONMENT:-unknown}"   # github-hosted | self-hosted
+if [ "$runner_env" = "self-hosted" ] && [ "${SBOMIT_NETWORK_TRACE:-false}" = "true" ]; then
+  log_notice "Self-hosted runner: network-trace adds a CA to the OS trust store for the build. It is removed after the build, or at the start of the next SBOMit run if the job is killed. Prefer ephemeral runners."
+fi
+
+record_fact RUNNER_ENVIRONMENT "$runner_env"
 record_fact RUNNER_OS "$os"
 record_fact RUNNER_ARCH "$arch"
 record_fact RUNNER_KERNEL "$kernel"

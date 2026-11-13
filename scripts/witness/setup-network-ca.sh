@@ -41,7 +41,7 @@ distinguished_name = dn
 prompt             = no
 x509_extensions    = v3_ca
 [dn]
-O  = SBOMit Pipeline Runner
+O  = SBOMit Action
 CN = SBOMit witness network-trace CA (ephemeral)
 [v3_ca]
 basicConstraints       = critical, CA:TRUE

@@ -14,6 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 use_tools_go   # isolated Go 1.26.x for building tools (see common.sh)
 
 # ── Source ───────────────────────────────────────────────────────────────────
+# The resolved commit SHAs are logged and recorded in run-metadata.json below.
 WITNESS_REPO="${SBOMIT_WITNESS_REPO:-https://github.com/in-toto/witness.git}"
 WITNESS_REF="${SBOMIT_WITNESS_REF:-main}"
 GO_WITNESS_REPO="${SBOMIT_GO_WITNESS_REPO:-https://github.com/in-toto/go-witness.git}"
@@ -35,7 +36,7 @@ go work init .
 go work use ../go-witness
 
 make build
-sudo install -m 0755 ./bin/witness /usr/local/bin/witness
+install -m 0755 ./bin/witness "$SBOMIT_BIN_DIR/witness"
 group_end
 # ─────────────────────────────────────────────────────────────────────────────
 

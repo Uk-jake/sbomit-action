@@ -62,7 +62,7 @@ jq -n \
   --arg use_syft "${SBOMIT_USE_SYFT:-}" \
   --argjson facts "$facts_json" \
   '{
-     schema: "sbomit-pipeline-runner/run-metadata/v1",
+     schema: "sbomit-action/run-metadata/v1",
      status: $status,
      generated_at: $generated_at,
      github: {

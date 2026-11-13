@@ -9,10 +9,9 @@ use_tools_go   # isolated Go 1.26.x for building tools (see common.sh)
 
 # ── Install ──────────────────────────────────────────────────────────────────
 group_start "Install sbomit"
-go install github.com/sbomit/sbomit@latest
-sudo install -m 0755 "$GOBIN/sbomit" /usr/local/bin/sbomit
+go install github.com/sbomit/sbomit@v0.3.0   # GOBIN = $SBOMIT_BIN_DIR
 group_end
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Record the exact version that @latest resolved to.
-record_fact SBOMIT_VERSION "$(go version -m /usr/local/bin/sbomit | awk '$1 == "mod" {print $3; exit}')"
+# Record the installed version.
+record_fact SBOMIT_VERSION "$(go version -m "$SBOMIT_BIN_DIR/sbomit" | awk '$1 == "mod" {print $3; exit}')"
